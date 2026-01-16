@@ -1,10 +1,12 @@
 use crate::audio::PlaybackStatus;
+use crate::gui::Visualizer;
 use crate::state::AppState;
 use eframe::egui;
 use std::sync::Arc;
 
 pub struct MainWindow {
     state: Arc<AppState>,
+    visualizer: Visualizer,
 }
 
 impl MainWindow {
@@ -17,6 +19,7 @@ impl MainWindow {
 
         Self {
             state: Arc::new(AppState::new().expect("Failed to create app state")),
+            visualizer: Visualizer::new(),
         }
     }
 }
@@ -28,8 +31,20 @@ impl eframe::App for MainWindow {
             let _ = self.state.stop();
         }
 
+        // Update visualizer with latest spectrum data
+        let spectrum = self.state.get_spectrum();
+        self.visualizer.update_spectrum(&spectrum);
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Audio Visualizer");
+            ui.add_space(10.0);
+
+            // Visualizer section
+            ui.group(|ui| {
+                ui.label("Spectrum Visualizer:");
+                self.visualizer.ui(ui);
+            });
+
             ui.add_space(10.0);
 
             // File loading section
