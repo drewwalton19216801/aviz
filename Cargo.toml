@@ -5,3 +5,33 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# GUI Framework
+eframe = "0.33.3"
+egui = "0.33.3"
+egui_plot = "0.34.0"
+
+# Audio Processing
+rodio = "0.21.1"
+
+# FFT Analysis
+realfft = "3.3"
+rustfft = "6.2"
+
+# Utilities
+ringbuf = "0.4"
+rfd = "0.17.2"
+anyhow = "1.0"
+thiserror = "2.0.17"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+criterion = "0.8.1"
+approx = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
