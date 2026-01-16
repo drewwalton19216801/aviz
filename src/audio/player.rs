@@ -1,5 +1,6 @@
 use crate::utils::{AudioError, Result};
-use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink};
+use ringbuf::{traits::*, HeapRb};
+use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -13,11 +14,72 @@ pub enum PlaybackStatus {
     Paused,
 }
 
+// Sample buffer size - enough for FFT analysis
+const SAMPLE_BUFFER_SIZE: usize = 8192;
+
+/// A wrapper source that captures audio samples into a ring buffer
+struct CapturingSource<S> {
+    source: S,
+    sample_buffer: Arc<Mutex<HeapRb<f32>>>,
+}
+
+impl<S> CapturingSource<S> {
+    fn new(source: S, sample_buffer: Arc<Mutex<HeapRb<f32>>>) -> Self {
+        Self {
+            source,
+            sample_buffer,
+        }
+    }
+}
+
+impl<S> Iterator for CapturingSource<S>
+where
+    S: Source<Item = f32>,
+{
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(sample) = self.source.next() {
+            // Push sample to ring buffer (overwrites old data if full)
+            if let Ok(mut buffer) = self.sample_buffer.lock() {
+                let _ = buffer.try_push(sample);
+            }
+            Some(sample)
+        } else {
+            None
+        }
+    }
+}
+
+impl<S> Source for CapturingSource<S>
+where
+    S: Source<Item = f32>,
+{
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+
+    fn channels(&self) -> u16 {
+        self.source.channels()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.source.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+}
+
 pub struct AudioPlayer {
     stream: Arc<OutputStream>,
     sink: Arc<Mutex<Option<Sink>>>,
     current_file: Arc<Mutex<Option<PathBuf>>>,
     status: Arc<Mutex<PlaybackStatus>>,
+    sample_buffer: Arc<Mutex<HeapRb<f32>>>,
+    sample_rate: Arc<Mutex<u32>>,
+    channels: Arc<Mutex<u16>>,
 }
 
 impl AudioPlayer {
@@ -30,6 +92,9 @@ impl AudioPlayer {
             sink: Arc::new(Mutex::new(None)),
             current_file: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new(PlaybackStatus::Stopped)),
+            sample_buffer: Arc::new(Mutex::new(HeapRb::new(SAMPLE_BUFFER_SIZE))),
+            sample_rate: Arc::new(Mutex::new(44100)),
+            channels: Arc::new(Mutex::new(2)),
         })
     }
 
@@ -44,6 +109,13 @@ impl AudioPlayer {
         let source = Decoder::new(buf_reader)
             .map_err(|e| AudioError::DecodeError(format!("Failed to decode audio: {}", e)))?;
 
+        // Store sample rate and channels
+        *self.sample_rate.lock().unwrap() = source.sample_rate();
+        *self.channels.lock().unwrap() = source.channels();
+
+        // Wrap the source to capture samples
+        let capturing_source = CapturingSource::new(source, Arc::clone(&self.sample_buffer));
+
         // Clear the current sink and create a new one
         let mut sink_guard = self.sink.lock().unwrap();
         if let Some(sink) = sink_guard.take() {
@@ -53,8 +125,8 @@ impl AudioPlayer {
         // Create a new sink connected to the mixer
         let new_sink = Sink::connect_new(self.stream.mixer());
         
-        // Append the source to the sink
-        new_sink.append(source);
+        // Append the capturing source to the sink
+        new_sink.append(capturing_source);
         
         // Pause immediately so it doesn't start playing
         new_sink.pause();
@@ -152,6 +224,35 @@ impl AudioPlayer {
         // This is a placeholder that returns zero
         // In Phase 2+, we could implement this by tracking samples
         Duration::from_secs(0)
+    }
+
+    /// Get a copy of recent audio samples for FFT analysis
+    /// Returns samples and the number of channels
+    pub fn get_samples(&self, count: usize) -> (Vec<f32>, u16) {
+        let buffer = self.sample_buffer.lock().unwrap();
+        let channels = *self.channels.lock().unwrap();
+        
+        let available = buffer.occupied_len();
+        let to_read = count.min(available);
+        
+        let mut samples = Vec::with_capacity(to_read);
+        
+        // Read samples by popping and re-pushing (since ringbuf doesn't have random access)
+        // We'll just collect what we can from the buffer
+        let buffer_vec: Vec<f32> = buffer.iter().copied().collect();
+        
+        // Get the most recent samples
+        if buffer_vec.len() >= to_read {
+            samples.extend_from_slice(&buffer_vec[buffer_vec.len() - to_read..]);
+        } else {
+            samples.extend_from_slice(&buffer_vec);
+        }
+        
+        (samples, channels)
+    }
+
+    pub fn get_sample_rate(&self) -> u32 {
+        *self.sample_rate.lock().unwrap()
     }
 }
 
