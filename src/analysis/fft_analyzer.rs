@@ -1,10 +1,21 @@
+//! FFT-based audio spectrum analyzer for real-time visualization.
+
 use realfft::{RealFftPlanner, RealToComplex};
 use std::sync::Arc;
 
+/// Size of the FFT window (number of samples to analyze)
 const FFT_SIZE: usize = 4096;
-const NUM_BARS: usize = 128;
-const SMOOTHING_FACTOR: f32 = 0.7; // Higher = more smoothing
 
+/// Number of frequency bars in the output spectrum
+const NUM_BARS: usize = 128;
+
+/// Temporal smoothing factor (0.0 = no smoothing, 1.0 = maximum smoothing)
+const SMOOTHING_FACTOR: f32 = 0.7;
+
+/// Real-time FFT analyzer that converts audio samples into a frequency spectrum.
+///
+/// This analyzer uses a Hann window to reduce spectral leakage and applies
+/// logarithmic frequency scaling for better visualization of human-audible frequencies.
 pub struct FftAnalyzer {
     fft: Arc<dyn RealToComplex<f32>>,
     input_buffer: Vec<f32>,
@@ -15,6 +26,10 @@ pub struct FftAnalyzer {
 }
 
 impl FftAnalyzer {
+    /// Create a new FFT analyzer with default settings.
+    ///
+    /// Initializes the FFT planner, creates a Hann window, and allocates
+    /// buffers for spectrum analysis.
     pub fn new() -> Self {
         let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
@@ -151,11 +166,6 @@ impl FftAnalyzer {
             self.smoothed_spectrum[i] = SMOOTHING_FACTOR * self.smoothed_spectrum[i]
                 + (1.0 - SMOOTHING_FACTOR) * self.spectrum[i];
         }
-    }
-    
-    /// Get the number of frequency bars
-    pub fn num_bars(&self) -> usize {
-        NUM_BARS
     }
     
     /// Get the required number of samples for FFT

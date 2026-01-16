@@ -1,3 +1,5 @@
+//! Audio playback engine with real-time sample capture for FFT analysis.
+
 use crate::utils::{AudioError, Result};
 use rodio::{cpal::Sample, Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 use std::collections::VecDeque;
@@ -7,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Current playback status of the audio player.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PlaybackStatus {
     Stopped,
@@ -81,6 +84,10 @@ where
     }
 }
 
+/// Audio player that supports MP3 and WAV files with real-time sample capture.
+///
+/// This player uses rodio for audio playback and captures samples in a ring buffer
+/// for FFT analysis. Supports play, pause, stop, and volume control.
 pub struct AudioPlayer {
     stream: Arc<OutputStream>,
     sink: Arc<Mutex<Option<Sink>>>,
@@ -226,13 +233,6 @@ impl AudioPlayer {
         } else {
             true
         }
-    }
-
-    pub fn get_position(&self) -> Duration {
-        // Note: rodio's Sink doesn't provide position tracking out of the box
-        // This is a placeholder that returns zero
-        // In Phase 2+, we could implement this by tracking samples
-        Duration::from_secs(0)
     }
 
     /// Get a copy of recent audio samples for FFT analysis

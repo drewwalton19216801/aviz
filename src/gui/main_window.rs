@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub struct MainWindow {
     state: Arc<AppState>,
     visualizer: Visualizer,
+    error_message: Option<String>,
 }
 
 impl MainWindow {
@@ -20,6 +21,7 @@ impl MainWindow {
         Self {
             state: Arc::new(AppState::new().expect("Failed to create app state")),
             visualizer: Visualizer::new(),
+            error_message: None,
         }
     }
 }
@@ -52,14 +54,19 @@ impl eframe::App for MainWindow {
                 ui.label("Audio File:");
                 ui.horizontal(|ui| {
                     if ui.button("Load File").clicked() {
+                        self.error_message = None; // Clear previous errors
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Audio Files", &["mp3", "wav"])
                             .pick_file()
                         {
                             match self.state.load_file(path) {
-                                Ok(_) => {},
+                                Ok(_) => {
+                                    self.error_message = None;
+                                },
                                 Err(e) => {
-                                    tracing::error!("Failed to load file: {}", e);
+                                    let error_msg = format!("Failed to load file: {}", e);
+                                    tracing::error!("{}", error_msg);
+                                    self.error_message = Some(error_msg);
                                 }
                             }
                         }
@@ -152,7 +159,36 @@ impl eframe::App for MainWindow {
                 };
                 ui.label(status_text);
             });
+
+            ui.add_space(10.0);
+
+            // Error message display
+            if let Some(error) = self.error_message.clone() {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "⚠ Error:");
+                        ui.label(&error);
+                        if ui.button("✖").clicked() {
+                            self.error_message = None;
+                        }
+                    });
+                });
+            }
         });
+
+        // Keyboard shortcuts
+        if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+            let status = self.state.get_status();
+            let has_file = self.state.get_current_file().is_some();
+            
+            if has_file {
+                if status == PlaybackStatus::Playing {
+                    let _ = self.state.pause();
+                } else if status == PlaybackStatus::Paused || status == PlaybackStatus::Stopped {
+                    let _ = self.state.play();
+                }
+            }
+        }
 
         // Request repaint for smooth UI updates
         ctx.request_repaint();

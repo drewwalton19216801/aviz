@@ -1,5 +1,11 @@
+//! Real-time audio spectrum visualizer with color-coded frequency bars.
+
 use eframe::egui;
 
+/// Visual representation of audio frequency spectrum.
+///
+/// Displays frequency bars with color gradients based on magnitude,
+/// ranging from blue (low) to red (high).
 pub struct Visualizer {
     spectrum_data: Vec<f32>,
 }
