@@ -13,8 +13,8 @@ fn main() -> anyhow::Result<()> {
     // Configure the native window options
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0])
-            .with_min_inner_size([600.0, 400.0])
+            .with_inner_size([900.0, 750.0])
+            .with_min_inner_size([700.0, 600.0])
             .with_title("Audio Visualizer"),
         ..Default::default()
     };

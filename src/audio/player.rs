@@ -1,6 +1,6 @@
 use crate::utils::{AudioError, Result};
 use ringbuf::{traits::*, HeapRb};
-use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
+use rodio::{cpal::Sample, Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -18,6 +18,7 @@ pub enum PlaybackStatus {
 const SAMPLE_BUFFER_SIZE: usize = 8192;
 
 /// A wrapper source that captures audio samples into a ring buffer
+/// Converts samples to f32 for analysis
 struct CapturingSource<S> {
     source: S,
     sample_buffer: Arc<Mutex<HeapRb<f32>>>,
@@ -34,15 +35,17 @@ impl<S> CapturingSource<S> {
 
 impl<S> Iterator for CapturingSource<S>
 where
-    S: Source<Item = f32>,
+    S: Source,
+    S::Item: Sample,
 {
-    type Item = f32;
+    type Item = S::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(sample) = self.source.next() {
-            // Push sample to ring buffer (overwrites old data if full)
+            // Convert sample to f32 and push to ring buffer
             if let Ok(mut buffer) = self.sample_buffer.lock() {
-                let _ = buffer.try_push(sample);
+                let f32_sample = sample.to_sample::<f32>();
+                let _ = buffer.try_push(f32_sample);
             }
             Some(sample)
         } else {
@@ -53,7 +56,8 @@ where
 
 impl<S> Source for CapturingSource<S>
 where
-    S: Source<Item = f32>,
+    S: Source,
+    S::Item: Sample,
 {
     fn current_span_len(&self) -> Option<usize> {
         self.source.current_span_len()
@@ -106,15 +110,15 @@ impl AudioPlayer {
         let buf_reader = BufReader::new(file);
         
         // Decode the audio file
-        let source = Decoder::new(buf_reader)
+        let decoder = Decoder::new(buf_reader)
             .map_err(|e| AudioError::DecodeError(format!("Failed to decode audio: {}", e)))?;
 
         // Store sample rate and channels
-        *self.sample_rate.lock().unwrap() = source.sample_rate();
-        *self.channels.lock().unwrap() = source.channels();
+        *self.sample_rate.lock().unwrap() = decoder.sample_rate();
+        *self.channels.lock().unwrap() = decoder.channels();
 
         // Wrap the source to capture samples
-        let capturing_source = CapturingSource::new(source, Arc::clone(&self.sample_buffer));
+        let capturing_source = CapturingSource::new(decoder, Arc::clone(&self.sample_buffer));
 
         // Clear the current sink and create a new one
         let mut sink_guard = self.sink.lock().unwrap();
