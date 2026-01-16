@@ -1,3 +1,22 @@
+//! Audio Visualizer (aviz) - Real-time audio spectrum visualization application.
+//!
+//! This application provides an interactive GUI for playing audio files (MP3/WAV)
+//! and displaying their frequency spectrum in real-time using FFT analysis.
+//!
+//! # Features
+//! - Audio playback with play/pause/stop controls
+//! - Real-time FFT-based spectrum visualization
+//! - Volume control
+//! - Keyboard shortcuts (Space for play/pause)
+//! - Color-coded frequency bars
+//!
+//! # Architecture
+//! - `audio`: Audio decoding and playback engine
+//! - `analysis`: FFT processing and spectrum analysis
+//! - `gui`: User interface and visualization
+//! - `state`: Application state management
+//! - `utils`: Error handling and utilities
+
 mod analysis;
 mod audio;
 mod gui;
