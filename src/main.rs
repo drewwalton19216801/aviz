@@ -1,3 +1,4 @@
+mod analysis;
 mod audio;
 mod gui;
 mod state;
