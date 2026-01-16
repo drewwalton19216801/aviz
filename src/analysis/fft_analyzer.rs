@@ -49,11 +49,14 @@ impl FftAnalyzer {
     }
     
     /// Convert stereo samples to mono by averaging channels
+    /// Note: samples are already interleaved (L, R, L, R, ...)
     fn stereo_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
         if channels == 1 {
             return samples.to_vec();
         }
         
+        // Samples are interleaved: [L, R, L, R, ...]
+        // Average every N samples where N = channels
         samples
             .chunks(channels as usize)
             .map(|chunk| chunk.iter().sum::<f32>() / channels as f32)
@@ -129,16 +132,15 @@ impl FftAnalyzer {
                 // Average and apply logarithmic scaling for better visualization
                 let avg_magnitude = sum / count as f32;
                 // Apply log scaling: log10(1 + magnitude) for better visual range
-                *bar_value = (1.0 + avg_magnitude * 10.0).log10();
+                *bar_value = (1.0 + avg_magnitude * 100.0).log10();
             }
         }
         
         // Normalize to 0-1 range
-        if let Some(&max_val) = self.spectrum.iter().max_by(|a, b| a.partial_cmp(b).unwrap()) {
-            if max_val > 0.0 {
-                for val in &mut self.spectrum {
-                    *val /= max_val;
-                }
+        let max_val = self.spectrum.iter().copied().fold(0.0f32, f32::max);
+        if max_val > 0.001 {
+            for val in &mut self.spectrum {
+                *val /= max_val;
             }
         }
     }
@@ -157,8 +159,9 @@ impl FftAnalyzer {
     }
     
     /// Get the required number of samples for FFT
+    /// Returns the number of stereo samples needed (will be converted to mono)
     pub fn required_samples(&self) -> usize {
-        FFT_SIZE
+        FFT_SIZE * 2  // Need 2x for stereo -> mono conversion
     }
 }
 

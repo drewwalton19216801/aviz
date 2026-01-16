@@ -1,6 +1,6 @@
 use crate::utils::{AudioError, Result};
-use ringbuf::{traits::*, HeapRb};
 use rodio::{cpal::Sample, Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -14,18 +14,19 @@ pub enum PlaybackStatus {
     Paused,
 }
 
-// Sample buffer size - enough for FFT analysis
-const SAMPLE_BUFFER_SIZE: usize = 8192;
+// Sample buffer size - enough for FFT analysis (stereo samples)
+// We need 4096 mono samples, which means 8192 stereo samples (2 channels)
+const SAMPLE_BUFFER_SIZE: usize = 16384;
 
 /// A wrapper source that captures audio samples into a ring buffer
 /// Converts samples to f32 for analysis
 struct CapturingSource<S> {
     source: S,
-    sample_buffer: Arc<Mutex<HeapRb<f32>>>,
+    sample_buffer: Arc<Mutex<VecDeque<f32>>>,
 }
 
 impl<S> CapturingSource<S> {
-    fn new(source: S, sample_buffer: Arc<Mutex<HeapRb<f32>>>) -> Self {
+    fn new(source: S, sample_buffer: Arc<Mutex<VecDeque<f32>>>) -> Self {
         Self {
             source,
             sample_buffer,
@@ -45,7 +46,11 @@ where
             // Convert sample to f32 and push to ring buffer
             if let Ok(mut buffer) = self.sample_buffer.lock() {
                 let f32_sample = sample.to_sample::<f32>();
-                let _ = buffer.try_push(f32_sample);
+                buffer.push_back(f32_sample);
+                // Keep buffer size limited
+                if buffer.len() > SAMPLE_BUFFER_SIZE {
+                    buffer.pop_front();
+                }
             }
             Some(sample)
         } else {
@@ -81,7 +86,7 @@ pub struct AudioPlayer {
     sink: Arc<Mutex<Option<Sink>>>,
     current_file: Arc<Mutex<Option<PathBuf>>>,
     status: Arc<Mutex<PlaybackStatus>>,
-    sample_buffer: Arc<Mutex<HeapRb<f32>>>,
+    sample_buffer: Arc<Mutex<VecDeque<f32>>>,
     sample_rate: Arc<Mutex<u32>>,
     channels: Arc<Mutex<u16>>,
 }
@@ -96,7 +101,7 @@ impl AudioPlayer {
             sink: Arc::new(Mutex::new(None)),
             current_file: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new(PlaybackStatus::Stopped)),
-            sample_buffer: Arc::new(Mutex::new(HeapRb::new(SAMPLE_BUFFER_SIZE))),
+            sample_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(SAMPLE_BUFFER_SIZE))),
             sample_rate: Arc::new(Mutex::new(44100)),
             channels: Arc::new(Mutex::new(2)),
         })
@@ -236,20 +241,20 @@ impl AudioPlayer {
         let buffer = self.sample_buffer.lock().unwrap();
         let channels = *self.channels.lock().unwrap();
         
-        let available = buffer.occupied_len();
+        let available = buffer.len();
         let to_read = count.min(available);
         
         let mut samples = Vec::with_capacity(to_read);
         
-        // Read samples by popping and re-pushing (since ringbuf doesn't have random access)
-        // We'll just collect what we can from the buffer
-        let buffer_vec: Vec<f32> = buffer.iter().copied().collect();
-        
-        // Get the most recent samples
-        if buffer_vec.len() >= to_read {
-            samples.extend_from_slice(&buffer_vec[buffer_vec.len() - to_read..]);
+        // Get the most recent samples from the back of the deque
+        if available >= to_read {
+            let start_idx = available - to_read;
+            for i in start_idx..available {
+                samples.push(buffer[i]);
+            }
         } else {
-            samples.extend_from_slice(&buffer_vec);
+            // Not enough samples yet
+            samples.extend(buffer.iter().copied());
         }
         
         (samples, channels)

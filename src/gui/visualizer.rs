@@ -37,7 +37,10 @@ impl Visualizer {
             egui::Color32::from_rgb(20, 20, 30),
         );
         
-        if self.spectrum_data.is_empty() {
+        // Check if we have any actual audio data (non-zero values)
+        let has_audio = self.spectrum_data.iter().any(|&v| v > 0.001);
+        
+        if !has_audio {
             // Draw "No audio playing" message
             painter.text(
                 rect.center(),
